@@ -1,25 +1,84 @@
 (ns akshar.core
-  (:import (javax.swing JFrame JTextPane))
+  (:import (javax.swing JFrame JTextPane Action KeyStroke AbstractAction)
+           (javax.swing.text DocumentFilter)
+           (java.awt.event KeyListener KeyEvent))
   (:gen-class))
 
+;; State
+(def state (atom {:mode :cmd :chord ""}))
+
+(defn set-mode! [mode]
+  (println "Mode changed: " mode)
+  (swap! state assoc :chord "")
+  (swap! state assoc :mode mode))
+
+(def chords (atom {:i #(set-mode! :ins)}))
+
+(defn cmd? []
+  (= (:mode @state) :cmd))
+
+(defn add-chord-key! [key]
+  (println "adding key: " key)
+  (swap! state update-in [:chord] (partial str key)))
+
+(defn get-chord []
+  (keyword (get @state :chord "not-found")))
+
+(defn handle-chords [ch]
+  (add-chord-key! ch)
+  (println "chord: " (:chord @state))
+  (if-let [f (get @chords (get-chord))]
+    (f)
+    (println (get-chord))))
+
+;; Actions
+(def esc-action
+  (proxy [AbstractAction] []
+    (actionPerformed [ae]
+      (set-mode! :cmd))))
+
+(def doc-filter
+  (proxy [DocumentFilter] []
+    (insertString [fb offset string attr]
+      (println "filte")
+      (if (cmd?)
+        (handle-chords string)
+        (proxy-super insertString fb offset string attr)))
+
+    (replace [fb offset length text attr]
+      (if (cmd?)
+        (handle-chords text)
+        (proxy-super replace fb offset length text attr)))))
+
+;; UI elements
 (defn make-text-pane []
    (JTextPane.))
 
+(defn add-keybindings [tp]
+  (let [im (.getInputMap tp)]
+    (.put im (KeyStroke/getKeyStroke KeyEvent/VK_ESCAPE 0) esc-action)
+    ))
+
 (defn make-frame []
   (doto (JFrame. "Akshar")
-    (.setSize 200 200)))
+    (.setSize 200 200)
+    (.setDefaultCloseOperation JFrame/EXIT_ON_CLOSE)))
 
 (defn make-editor []
   (let [frame (make-frame)
         tp (make-text-pane)
-        cp (.getContentPane frame)]
+        cp (.getContentPane frame)
+        doc (.getStyledDocument tp)]
+    (.setDocumentFilter doc doc-filter)
     (.add cp tp)
-    {:frame frame :tp tp :cp cp}
+    (add-keybindings tp)
+    (println (.getDocumentFilter doc))
+    {:frame frame :tp tp :cp cp :doc doc}
     ))
 
 (defn start []
-  (def editor (make-editor))
-  (.setVisible (:frame editor) true))
+  (swap! state merge (make-editor))
+  (.setVisible (:frame @state) true))
     
 (defn -main
   [& args]
