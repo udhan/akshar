@@ -8,7 +8,6 @@
 (def state (atom {:mode :cmd :chord ""}))
 
 (defn set-mode! [mode]
-  (println "Mode changed: " mode)
   (swap! state assoc :chord "")
   (swap! state assoc :mode mode))
 
@@ -18,7 +17,6 @@
   (= (:mode @state) :cmd))
 
 (defn add-chord-key! [key]
-  (println "adding key: " key)
   (swap! state update-in [:chord] (partial str key)))
 
 (defn get-chord []
@@ -26,10 +24,8 @@
 
 (defn handle-chords [ch]
   (add-chord-key! ch)
-  (println "chord: " (:chord @state))
   (if-let [f (get @chords (get-chord))]
-    (f)
-    (println (get-chord))))
+    (f)))
 
 ;; Actions
 (def esc-action
@@ -40,7 +36,6 @@
 (def doc-filter
   (proxy [DocumentFilter] []
     (insertString [fb offset string attr]
-      (println "filte")
       (if (cmd?)
         (handle-chords string)
         (proxy-super insertString fb offset string attr)))
@@ -72,7 +67,6 @@
     (.setDocumentFilter doc doc-filter)
     (.add cp tp)
     (add-keybindings tp)
-    (println (.getDocumentFilter doc))
     {:frame frame :tp tp :cp cp :doc doc}
     ))
 
