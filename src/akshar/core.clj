@@ -1,17 +1,49 @@
 (ns akshar.core
-  (:import (javax.swing JFrame JTextPane Action KeyStroke AbstractAction)
+  (:import (javax.swing JFrame JTextPane Action
+                        KeyStroke AbstractAction
+                        JScrollPane)
            (javax.swing.text DocumentFilter)
-           (java.awt.event KeyListener KeyEvent))
+           (java.awt.event KeyListener KeyEvent)
+           (java.awt BorderLayout Dimension))
   (:gen-class))
 
 ;; State
 (def state (atom {:mode :cmd :chord ""}))
 
 (defn set-mode! [mode]
+  (println "mode" mode)
   (swap! state assoc :chord "")
   (swap! state assoc :mode mode))
 
-(def chords (atom {:i #(set-mode! :ins)}))
+(defn command []
+  (set-mode! :cmd))
+
+(defn insert []
+  (set-mode! :ins))
+
+(defn get-para [offset]
+  (let [doc (:doc @state)
+        ele (.getCharacterElement doc offset)
+        soff (.getStartOffset ele)
+        eoff (.getEndOffset ele)]
+    (.getText doc soff (- eoff soff))))
+
+(defn append-mb [string]
+  (let [doc (:mbdoc @state)]
+    (println doc)
+    (.insertString doc (.getLength doc) (str "\n" string) nil)))
+
+(defn eval-line []
+  (append-mb 
+   (with-out-str
+     (try
+       (load-string
+        (get-para (.getCaretPosition (:tp @state))))
+       (catch Throwable t
+         (println (map str (.getStackTrace t))))))))
+
+(def chords (atom {:i insert
+                   :e eval-line}))
 
 (defn cmd? []
   (= (:mode @state) :cmd))
@@ -61,18 +93,24 @@
 
 (defn make-editor []
   (let [frame (make-frame)
+        mb (make-text-pane)
+        mbdoc (.getStyledDocument mb)
         tp (make-text-pane)
         cp (.getContentPane frame)
         doc (.getStyledDocument tp)]
     (.setDocumentFilter doc doc-filter)
-    (.add cp tp)
+    (.setPreferredSize mb (Dimension. 300 200))
+    (.add cp (JScrollPane. mb) (BorderLayout/PAGE_START))
+    (.add cp (JScrollPane. tp) (BorderLayout/CENTER))
+    (.pack frame)
     (add-keybindings tp)
-    {:frame frame :tp tp :cp cp :doc doc}
+    {:frame frame :tp tp :mb mb :mbdoc mbdoc :cp cp :doc doc}
     ))
 
 (defn start []
   (swap! state merge (make-editor))
-  (.setVisible (:frame @state) true))
+  (.setVisible (:frame @state) true)
+  (insert))
     
 (defn -main
   [& args]
