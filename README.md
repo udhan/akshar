@@ -2,6 +2,8 @@
 
 Simple text editor written in clojure
 
+## Not TODO
+
 ## Installation
 
 Download from http://example.com/FIXME.
