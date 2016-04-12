@@ -3,6 +3,7 @@
 Simple text editor written in clojure
 
 ## Not TODO
+- Feature packed
 
 ## Installation
 
