@@ -1,10 +1,9 @@
 (ns akshar.core
-  (:import (javax.swing JFrame JTextPane Action
-                        KeyStroke AbstractAction
+  (:import (javax.swing JFrame JTextPane Action KeyStroke AbstractAction
                         JScrollPane JPanel JComponent)
            (javax.swing.text DocumentFilter)
            (java.awt.event KeyListener KeyEvent)
-           (java.awt BorderLayout Dimension)
+           (java.awt BorderLayout Dimension Font)
            (java.io FileReader FileWriter))
   (:require [clojure.java.io :as io])
   (:gen-class))
@@ -38,12 +37,20 @@
 
 ;; File operations
 
+(defn refresh-tag-text [window]
+  (let [name (.getAbsolutePath (:file window))
+        save (if (:dirty window) "Save" "")
+        sep " "]
+  (.setText (:tag window) (str name sep save))))
+
 (defn open [window]
-  (.read (:b window) (FileReader. (.getAbsolutePath (:file window))) nil))
+  (refresh-tag-text window)
+  (.read (:body window) (FileReader. (.getAbsolutePath (:file window))) nil))
 
 (defn save! [event]
   (println event)
-  (.write (:b (:window event)) (FileWriter. (:file (:window event)))))
+  (refresh-tag-text (:window event))
+  (.write (:body (:window event)) (FileWriter. (:file (:window event)))))
 
 ;; Text pane related operations
 
@@ -77,17 +84,18 @@
                    :e eval-line
                    :w save!}))
 
+(defn find-window [doc]
+  ((:windows @state) (.getProperty doc "wid")))
+
 (defn handle-chords [event]
   (add-chord-key! (:ch event))
-  ;;(println (.getDocumentProperties (:doc event)))
   (if-let [f (get @chords (get-chord))]
-    (let [window (first
-                    (filter
-                      #(= (.getProperty (:doc event) "wid") (:wid %))
-                       (:windows @state)))]
-    (f (assoc event :window window)))))
+    (f event)))
 
 ;; Actions
+(defn set-dirty [window flag]
+  (swap! state assoc-in [:windows (:wid window) :dirty] true)
+  (get-in @state [:windows (:wid window)]))
 
 (def esc-action
   (proxy [AbstractAction] []
@@ -97,23 +105,39 @@
 (def doc-filter
   (proxy [DocumentFilter] []
     (insertString [fb offset string attr]
-      (if (cmd?)
-        (handle-chords {:doc (.getDocument fb) :ch string :offset offset})
-        (proxy-super insertString fb offset string attr)))
+      (let [window (find-window (.getDocument fb))
+            event {:doc (.getDocument fb) :ch string :offset offset :window window}]
+        (if (cmd?)
+          (handle-chords event)
+          (do (proxy-super insertString fb offset string attr)
+              (refresh-tag-text (set-dirty window true))))))
+
+    (remove [fb offset length]
+      (let [window (find-window (.getDocument fb))
+            event {:doc (.getDocument fb) :ch "«" :offset offset :window window}]
+        (if (cmd?)
+          (handle-chords event)
+          (do (proxy-super remove fb offset length)
+              (refresh-tag-text (set-dirty window true))))))
 
     (replace [fb offset length text attr]
-      (if (cmd?)
-        (handle-chords {:doc (.getDocument fb) :ch text :offset offset})
-        (proxy-super replace fb offset length text attr)))))
+      (let [window (find-window (.getDocument fb))
+            event {:doc (.getDocument fb) :ch text :offset offset :window window}]
+        (if (cmd?)
+          (handle-chords event)
+          (do (proxy-super replace fb offset length text attr)
+              (refresh-tag-text (set-dirty window true))))))))
 
 ;; UI elements
 
 (defn add-keybindings [window]
-  (let [imap (.getInputMap (:b window) JComponent/WHEN_IN_FOCUSED_WINDOW)]
+  (let [imap (.getInputMap (:body window) JComponent/WHEN_IN_FOCUSED_WINDOW)]
     (.put imap (KeyStroke/getKeyStroke KeyEvent/VK_ESCAPE 0) esc-action)))
 
 (defn make-text-pane []
-   (JTextPane.))
+  (let [panel (JTextPane.)]
+   (.setFont panel (Font. Font/MONOSPACED Font/PLAIN 14))
+   panel))
 
 (defn make-window [fpath]
   (let [panel (JPanel.)
@@ -121,11 +145,11 @@
         body (make-text-pane)
         file (io/as-file fpath)
         wid (get-next-wid)]
-    (.setPreferredSize tag (Dimension. 100 100))
+    (.setPreferredSize tag (Dimension. 500 20))
     (.setLayout panel (BorderLayout.))
     (.add panel (JScrollPane. tag) BorderLayout/PAGE_START)
     (.add panel (JScrollPane. body) BorderLayout/CENTER)
-    {:p panel :t tag :b body :file file :wid wid}))
+    {:panel panel :tag tag :body body :file file :wid wid :dirty false}))
 
 (defn make-frame []
   (let [frame (JFrame. "Akshar")]
@@ -138,18 +162,16 @@
   (let [frame (make-frame)
         window (make-window fpath)
         res (open window)]
-    (.add (.getContentPane frame) (:p window) BorderLayout/CENTER)
-    (.setDocumentFilter (.getDocument (:b window)) doc-filter)
-    (.putProperty (.getDocument (:b window)) "wid" (:wid window))
+    (.add (.getContentPane frame) (:panel window) BorderLayout/CENTER)
+    (.setDocumentFilter (.getDocument (:body window)) doc-filter)
+    (.putProperty (.getDocument (:body window)) "wid" (:wid window))
     (add-keybindings window)
     (.pack frame)
-    (println (.getDocumentProperties (.getDocument (:b window))))
     {:frame frame
-     :windows [window]}))
+     :windows {(:wid window) window}}))
 
 (defn start [fpath]
   (let [editor (make-editor fpath)]
-  (println editor)
   (.setVisible (:frame editor) true)
   (swap! state merge editor)
   (insert-mode)))
