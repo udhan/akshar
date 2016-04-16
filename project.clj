@@ -3,7 +3,8 @@
   :url "http://udhan.com"
   :license {:name "MIT License"
             :url ""}
-  :dependencies [[org.clojure/clojure "1.8.0"]]
+  :dependencies [[org.clojure/clojure "1.8.0"]
+                 [me.raynes/fs "1.4.6"]]
   :main ^:skip-aot akshar.core
   :target-path "target/%s"
   :profiles {:uberjar {:aot :all}})

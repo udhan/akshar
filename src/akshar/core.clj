@@ -5,8 +5,14 @@
            (java.awt.event KeyListener KeyEvent)
            (java.awt BorderLayout Dimension Font)
            (java.io FileReader FileWriter))
-  (:require [clojure.java.io :as io])
+  (:require [clojure.java.io :as io]
+            [me.raynes.fs :as fs]
+            [clojure.string :as strn])
   (:gen-class))
+;; File system
+
+(defn get-cwd-list []
+  (fs/list-dir fs/*cwd*))
 
 ;; State
 
@@ -41,11 +47,18 @@
   (let [name (.getAbsolutePath (:file window))
         save (if (:dirty window) "Save" "")
         sep " "]
-  (.setText (:tag window) (str name sep save))))
+    (.setText (:tag window) (str name sep save))))
 
-(defn open [window]
-  (refresh-tag-text window)
-  (.read (:body window) (FileReader. (.getAbsolutePath (:file window))) nil))
+(defn open [fpath win]
+  (let [file (io/as-file fpath)
+        window (assoc win :file file)]
+    (if (.isFile file)
+      (do
+        (.read (:body window) (FileReader. (.getAbsolutePath (:file window))) nil))
+      (let [ls (fs/list-dir fpath)]
+        (.setText (:body window) (strn/join "\n" ls))))
+    (refresh-tag-text window)
+    window))
 
 (defn save! [event]
   (println event)
@@ -70,13 +83,13 @@
 
 (defn eval-line [event]
   (append-text
-   (with-out-str
-     (try
-       (load-string
-        (get-line-text event))
-       (catch Throwable t
-         (println (map str (.getStackTrace t))))))
-   (:doc event)))
+    (with-out-str
+      (try
+        (load-string
+          (get-line-text event))
+        (catch Throwable t
+          (println (map str (.getStackTrace t))))))
+    (:doc event)))
 
 ;; Command mode chords
 
@@ -100,33 +113,33 @@
 (def esc-action
   (proxy [AbstractAction] []
     (actionPerformed [ae]
-      (set-mode! :cmd))))
+                     (set-mode! :cmd))))
 
 (def doc-filter
   (proxy [DocumentFilter] []
     (insertString [fb offset string attr]
-      (let [window (find-window (.getDocument fb))
-            event {:doc (.getDocument fb) :ch string :offset offset :window window}]
-        (if (cmd?)
-          (handle-chords event)
-          (do (proxy-super insertString fb offset string attr)
-              (refresh-tag-text (set-dirty window true))))))
+                  (let [window (find-window (.getDocument fb))
+                        event {:doc (.getDocument fb) :ch string :offset offset :window window}]
+                    (if (cmd?)
+                      (handle-chords event)
+                      (do (proxy-super insertString fb offset string attr)
+                        (refresh-tag-text (set-dirty window true))))))
 
     (remove [fb offset length]
-      (let [window (find-window (.getDocument fb))
-            event {:doc (.getDocument fb) :ch "«" :offset offset :window window}]
-        (if (cmd?)
-          (handle-chords event)
-          (do (proxy-super remove fb offset length)
-              (refresh-tag-text (set-dirty window true))))))
+            (let [window (find-window (.getDocument fb))
+                  event {:doc (.getDocument fb) :ch "«" :offset offset :window window}]
+              (if (cmd?)
+                (handle-chords event)
+                (do (proxy-super remove fb offset length)
+                  (refresh-tag-text (set-dirty window true))))))
 
     (replace [fb offset length text attr]
-      (let [window (find-window (.getDocument fb))
-            event {:doc (.getDocument fb) :ch text :offset offset :window window}]
-        (if (cmd?)
-          (handle-chords event)
-          (do (proxy-super replace fb offset length text attr)
-              (refresh-tag-text (set-dirty window true))))))))
+             (let [window (find-window (.getDocument fb))
+                   event {:doc (.getDocument fb) :ch text :offset offset :window window}]
+               (if (cmd?)
+                 (handle-chords event)
+                 (do (proxy-super replace fb offset length text attr)
+                   (refresh-tag-text (set-dirty window true))))))))
 
 ;; UI elements
 
@@ -136,20 +149,19 @@
 
 (defn make-text-pane []
   (let [panel (JTextPane.)]
-   (.setFont panel (Font. Font/MONOSPACED Font/PLAIN 14))
-   panel))
+    (.setFont panel (Font. Font/MONOSPACED Font/PLAIN 14))
+    panel))
 
-(defn make-window [fpath]
+(defn make-window []
   (let [panel (JPanel.)
         tag (make-text-pane)
         body (make-text-pane)
-        file (io/as-file fpath)
         wid (get-next-wid)]
     (.setPreferredSize tag (Dimension. 500 20))
     (.setLayout panel (BorderLayout.))
     (.add panel (JScrollPane. tag) BorderLayout/PAGE_START)
     (.add panel (JScrollPane. body) BorderLayout/CENTER)
-    {:panel panel :tag tag :body body :file file :wid wid :dirty false}))
+    {:panel panel :tag tag :body body :wid wid :dirty false}))
 
 (defn make-frame []
   (let [frame (JFrame. "Akshar")]
@@ -160,8 +172,8 @@
 
 (defn make-editor [fpath]
   (let [frame (make-frame)
-        window (make-window fpath)
-        res (open window)]
+        w (make-window)
+        window (open fpath w)]
     (.add (.getContentPane frame) (:panel window) BorderLayout/CENTER)
     (.setDocumentFilter (.getDocument (:body window)) doc-filter)
     (.putProperty (.getDocument (:body window)) "wid" (:wid window))
@@ -172,10 +184,12 @@
 
 (defn start [fpath]
   (let [editor (make-editor fpath)]
-  (.setVisible (:frame editor) true)
-  (swap! state merge editor)
-  (insert-mode)))
+    (.setVisible (:frame editor) true)
+    (swap! state merge editor)
+    (insert-mode)))
 
 (defn -main
-  [fpath & args]
-  (start fpath))
+  [& args]
+  (if-let [fpath (first args)]
+    (start fpath)
+    (start fs/*cwd*)))

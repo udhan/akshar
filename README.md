@@ -3,11 +3,14 @@
 Simple text editor written in clojure
 
 ## Not TODO
-- Feature packed
+- Not Feature packed
+- Not VIM
+- Not Emacs
+- Not ACME
 
 ## Installation
 
-Download from http://example.com/FIXME.
+Download from http://udhan.github.com/akshar.
 
 ## Usage
 
